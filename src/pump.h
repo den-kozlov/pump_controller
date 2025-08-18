@@ -13,7 +13,14 @@ enum pumpState_t {
 class Pump {
 public:
   explicit Pump(int pin, Sensor* sensor)
-      : pinNumber(pin), state(PUMP_OFF), activePeriod(1000 * 60 * 2), sensor(sensor), pumpOnDuration(1000 * 5), pumpOffDuration(1000 * 10) {}
+      : pinNumber(pin),
+        state(PUMP_OFF),
+        activePeriod(1000 * 60 * 2),
+        sensor(sensor),
+        pumpOnDuration(1000 * 5),
+        pumpOffDuration(1000 * 10),
+        stateTimer(),
+        activeTimer() {}
 
   int getPin() const { return pinNumber; }
   pumpState_t getState() const { return state; }
@@ -25,12 +32,12 @@ public:
   void tick();
   bool isActive() { return activeTimer.running(); }
 private:
-  unsigned long activePeriod;
-  uint16_t pumpOnDuration;
-  uint16_t pumpOffDuration;
   int pinNumber;
   pumpState_t state;
+  unsigned long activePeriod;
+  Sensor* sensor;
+  uint16_t pumpOnDuration;
+  uint16_t pumpOffDuration;
   uTimer16<millis> stateTimer;
   uTimer16<millis> activeTimer;
-  Sensor* sensor;
 };
