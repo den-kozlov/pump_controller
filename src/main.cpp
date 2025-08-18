@@ -16,24 +16,22 @@ SettingsESP sett("WiFi config", &db);
 
 DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, pump_active_duration, apply);
 
-uint8_t lastState;
-uint8_t relayPin = D7;
+const uint8_t relayPin = D7; // Relay pin for the pump
+const uint8_t sensorPin = D1; // Pin for the sensor
 
-const uint8_t numSensors = 4;
-
-Sensor sensor = Sensor(D1);
-Pump pump = Pump(D2, &sensor);
+Sensor sensor = Sensor(sensorPin);
+Pump pump = Pump(relayPin, &sensor);
 
 // Sensor rattle threshold
 uint16_t rattleThreshold;
 
 // Pump timer
+// The amount of time the pump will stay continuously on
 uint16_t pumpOnDuration;
+// Pause before the pump is turned on again
 uint16_t pumpOffDuration;
+// The total duration the pump is active after the sensor is triggered
 uint16_t pumpActiveDuration;
-uTimer<millis> pumpTimer;
-
-uTimer16<millis> debugTimer;
 
 void build(sets::Builder& b) {
     if (b.beginGroup("🛜 WiFi")) {
@@ -81,7 +79,6 @@ void build(sets::Builder& b) {
 
 void setup() {
     Serial.begin(115200);
-    lastState = 0;
     pinMode(relayPin, OUTPUT);
     digitalWrite(relayPin, LOW);
 
@@ -134,8 +131,6 @@ void setup() {
     pump.setPumpOnDuration(pumpOnDuration);
     pump.setPumpOffDuration(pumpOffDuration);
     pump.setPumpActiveDuration(pumpActiveDuration);
-    pumpTimer.stop();
-    debugTimer.start();
 }
 
 
