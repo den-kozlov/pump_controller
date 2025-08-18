@@ -6,40 +6,31 @@
 #include <WiFiConnector.h>
 #include <ESP8266WiFi.h>
 #include <GTimer.h>
+#include "sensor.h"
+#include "pump.h"
+
 GyverDBFile db(&LittleFS, "/data.db");
 SettingsESP sett("WiFi config", &db);
 
-DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, apply);
+DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, pump_active_duration, apply);
 
 uint8_t lastState;
 uint8_t relayPin = D7;
-struct sensor_t {
-    uint8_t pin;
-    uTimer16<millis> *timer;
-    bool state = false;
-};
 
 const uint8_t numSensors = 4;
-// Water level sensors indexed from lower to higher
-sensor_t sensors[4] = {
-    {D1, new uTimer16<millis>(), false},
-    {D2, new uTimer16<millis>(), false},
-    {D5, new uTimer16<millis>(), false},
-    {D6, new uTimer16<millis>(), false}
-};
+
+Sensor sensor = Sensor(D1);
+Pump pump = Pump(D2, &sensor);
+
 // Sensor rattle threshold
 uint16_t rattleThreshold;
 
 // Pump timer
 uint16_t pumpOnDuration;
 uint16_t pumpOffDuration;
+uint16_t pumpActiveDuration;
 uTimer<millis> pumpTimer;
-enum {
-    PUMP_OFF = 0,
-    PUMP_ON_WORKING,
-    PUMP_ON_IDLE,
-    PUMP_EMERGENCY_SHUTDOWN
-} pumpState;
+
 uTimer16<millis> debugTimer;
 
 void build(sets::Builder& b) {
@@ -68,32 +59,25 @@ void build(sets::Builder& b) {
             b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
             b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
             b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
+            b.Number(kk::pump_active_duration, "Pump Active Duration (ms)");
             if (b.Button("Apply")) {
                 db.update();
                 rattleThreshold = db[kk::rattle_threshold];
                 pumpOnDuration = db[kk::pump_on_duration];
                 pumpOffDuration = db[kk::pump_off_duration];
+                pumpActiveDuration = db[kk::pump_active_duration];
             }
             b.endGroup();
         }
         if (b.beginGroup("💧 Sensor states")) {
-            for (byte i = 0; i < numSensors; i++) {
-                b.LED(printf("Sensor %d", i), sensors[i].state);
-            }
+            b.LED("Sensor", sensor.getStatus());
+            b.LED("Pump", pump.isActive());
             b.endGroup();
         }
     }
 }
 
-void update(sets::Updater& u) {
-    u.update(kk::conf);
-}
-
 void setup() {
-    for (byte i = 0; i < numSensors; i++) {
-        pinMode(sensors[i].pin, INPUT);
-        digitalWrite(sensors[i].pin, LOW);
-    }
     Serial.begin(115200);
     lastState = 0;
     pinMode(relayPin, OUTPUT);
@@ -108,6 +92,7 @@ void setup() {
     db.init(kk::rattle_threshold, 1000);
     db.init(kk::pump_on_duration, 5000);
     db.init(kk::pump_off_duration, 10000);
+    db.init(kk::pump_active_duration, 1000 * 60 * 2);
 
     WiFiConnector.onConnect([]() {
         Serial.print("Connected! ");
@@ -125,7 +110,6 @@ void setup() {
 
     sett.begin();
     sett.onBuild(build);
-    sett.onUpdate(update);
 
     NTP.onError([]() {
         Serial.print("NTP Error: ");
@@ -134,125 +118,29 @@ void setup() {
         Serial.println(NTP.online() ? "yes" : "no");
     });
 
-    NTP.begin(db[kk::ntp_offset]); 
+    NTP.begin(db[kk::ntp_offset]);
     NTP.setPeriod(1 * 60 * 60);
     NTP.asyncMode(true);
 
     rattleThreshold = db[kk::rattle_threshold];
     pumpOnDuration = db[kk::pump_on_duration];
     pumpOffDuration = db[kk::pump_off_duration];
+    pumpActiveDuration = db[kk::pump_active_duration];
+    pinMode(sensor.getPin(), INPUT);
+    digitalWrite(sensor.getPin(), LOW);
+    sensor.setRattleThreshold(rattleThreshold);
+    pump.setPumpOnDuration(pumpOnDuration);
+    pump.setPumpOffDuration(pumpOffDuration);
+    pump.setPumpActiveDuration(pumpActiveDuration);
     pumpTimer.stop();
     debugTimer.start();
-}
-
-bool readSensors() {
-    bool overallStateChanged = false;
-    for (byte i = 0; i < 4; i++) {
-        // Sensor pins are pulled up by the external resistors.
-        // Dry sensor produce HIGH signal on its pin.
-        // So we need to invert the logic.
-        bool state = !digitalRead(sensors[i].pin);
-        if (sensors[i].state != state) {
-            if (!sensors[i].timer->running()) {
-                sensors[i].timer->start();
-            }
-        } else {
-            sensors[i].timer->stop();
-        }
-        if (sensors[i].timer->timeout(rattleThreshold)) {
-            sensors[i].state = !sensors[i].state;
-            overallStateChanged = true;
-            Serial.print("Sensor ");
-            Serial.print(i);
-            Serial.println(sensors[i].state ? " triggered!" : " reset.");
-        }
-    }
-    return overallStateChanged;
-}
-
-
-void updatePumpState() {
-    bool allTriggered = true;
-    for (byte i = 0; i < numSensors; i++) {
-        if (!sensors[i].state) {
-            allTriggered = false;
-            break;
-        }
-    };
-
-    switch (pumpState)
-    {
-    case PUMP_OFF:
-      if (allTriggered)
-      {
-        Serial.println("All sensors triggered, activating pump.");
-        pumpState = PUMP_ON_WORKING;
-        digitalWrite(relayPin, HIGH);
-        pumpTimer.start();
-      }
-      break;
-    case PUMP_ON_WORKING:
-      if (pumpTimer.timeout(pumpOnDuration))
-      {
-        Serial.println("Pump working period ended.");
-        pumpState = PUMP_ON_IDLE;
-        digitalWrite(relayPin, LOW);
-        pumpTimer.start();
-      }
-      break;
-    case PUMP_ON_IDLE:
-      if (pumpTimer.timeout(pumpOffDuration))
-      {
-        // Idle period ended. If water level is above second sensor - activate pump
-        if (sensors[1].state)
-        {
-          Serial.println("Water level is above the second sensor, activating pump.");
-          pumpState = PUMP_ON_WORKING;
-          digitalWrite(relayPin, HIGH);
-          pumpTimer.start();
-        }
-        else
-        {
-          Serial.println("Water level is below safe threshold, turning off pump.");
-          pumpState = PUMP_OFF;
-          digitalWrite(relayPin, LOW);
-          pumpTimer.stop();
-        }
-      }
-      break;
-    case PUMP_EMERGENCY_SHUTDOWN:
-      if (sensors[0].state)
-      {
-        // Water level is above critical threshold. Disabling emergency shutdown.
-        Serial.println("Water level is above critical threshold, disabling emergency shutdown.");
-        pumpState = PUMP_OFF;
-      }
-    };
-
-    if (!sensors[0].state && pumpState != PUMP_EMERGENCY_SHUTDOWN) {
-        // Emergency shutdown if first sensor is not triggered
-        Serial.println("Emergency shutdown activated, water level is below critical threshold.");
-        pumpState = PUMP_EMERGENCY_SHUTDOWN;
-        digitalWrite(relayPin, LOW);
-        pumpTimer.stop();
-    }
 }
 
 void loop() {
   WiFiConnector.tick();
   sett.tick();
   NTP.tick();
-  if (readSensors()) {
-      //Serial.println("Sensors state changed, updating relay.");
-  }
-  updatePumpState();
-  if (debugTimer.period(1000)) {
-      Serial.print("Sensors state: ");
-      for (byte i = 0; i < numSensors; i++) {
-          Serial.print(sensors[i].state ? "1" : "0");
-      }
-      Serial.println();
-  }
-  delay(100);
+  sensor.tick();
+  pump.tick();
 }
 
