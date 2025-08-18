@@ -1,3 +1,4 @@
+
 #include <Arduino.h>
 #include <GyverDBFile.h>
 #include <LittleFS.h>
@@ -8,6 +9,7 @@
 #include <GTimer.h>
 #include "sensor.h"
 #include "pump.h"
+
 
 GyverDBFile db(&LittleFS, "/data.db");
 SettingsESP sett("WiFi config", &db);
@@ -34,46 +36,46 @@ uTimer<millis> pumpTimer;
 uTimer16<millis> debugTimer;
 
 void build(sets::Builder& b) {
-    {
-        if (b.beginGroup("🛜 WiFi")) {
-            b.Input(kk::wifi_ssid, "SSID");
-            b.Pass(kk::wifi_pass, "Password");
-            if (b.Button(kk::apply, "Connect")) {
-                db.update();
-                WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
-            }
-            b.endGroup();
+    if (b.beginGroup("🛜 WiFi")) {
+        b.Input(kk::wifi_ssid, "SSID");
+        b.Pass(kk::wifi_pass, "Password");
+        if (b.Button(kk::apply, "Connect")) {
+            db.update();
+            WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
         }
+        b.endGroup();
+    }
 
-        if (b.beginGroup("🕝 NTP")) {
-            b.Input(kk::ntp_server, "NTP Server");
-            b.Input(kk::ntp_offset, "Time Offset (GMT zone)");
-            if (b.Button("Apply")) {
-                db.update();
-                NTP.setHost(db[kk::ntp_server]);
-                NTP.setGMT(db[kk::ntp_offset]);
-            }
-            b.endGroup();
+    if (b.beginGroup("🕝 NTP")) {
+        b.Input(kk::ntp_server, "NTP Server");
+        b.Input(kk::ntp_offset, "Time Offset (GMT zone)");
+        if (b.Button("Apply")) {
+            db.update();
+            NTP.setHost(db[kk::ntp_server]);
+            NTP.setGMT(db[kk::ntp_offset]);
         }
-        if (b.beginGroup("⚙️ Sensor settings")) {
-            b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
-            b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
-            b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
-            b.Number(kk::pump_active_duration, "Pump Active Duration (ms)");
-            if (b.Button("Apply")) {
-                db.update();
-                rattleThreshold = db[kk::rattle_threshold];
-                pumpOnDuration = db[kk::pump_on_duration];
-                pumpOffDuration = db[kk::pump_off_duration];
-                pumpActiveDuration = db[kk::pump_active_duration];
-            }
-            b.endGroup();
+        b.endGroup();
+    }
+
+    if (b.beginGroup("⚙️ Sensor settings")) {
+        b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
+        b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
+        b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
+        b.Number(kk::pump_active_duration, "Pump Active Duration (ms)");
+        if (b.Button("Apply")) {
+            db.update();
+            rattleThreshold = db[kk::rattle_threshold];
+            pumpOnDuration = db[kk::pump_on_duration];
+            pumpOffDuration = db[kk::pump_off_duration];
+            pumpActiveDuration = db[kk::pump_active_duration];
         }
-        if (b.beginGroup("💧 Sensor states")) {
-            b.LED("Sensor", sensor.getStatus());
-            b.LED("Pump", pump.isActive());
-            b.endGroup();
-        }
+        b.endGroup();
+    }
+
+    if (b.beginGroup("💧 Sensor states")) {
+        b.LED("Sensor", sensor.getStatus());
+        b.LED("Pump", pump.isActive());
+        b.endGroup();
     }
 }
 
@@ -136,11 +138,12 @@ void setup() {
     debugTimer.start();
 }
 
+
 void loop() {
-  WiFiConnector.tick();
-  sett.tick();
-  NTP.tick();
-  sensor.tick();
-  pump.tick();
+    WiFiConnector.tick();
+    sett.tick();
+    NTP.tick();
+    sensor.tick();
+    pump.tick();
 }
 
