@@ -1,6 +1,10 @@
 {
   "files.associations": {
     "*.h": "cpp",
-    "typeinfo": "cpp"
+    "typeinfo": "cpp",
+    "locale": "cpp",
+    "sstream": "cpp",
+    "streambuf": "cpp",
+    "string": "cpp"
   }
 }

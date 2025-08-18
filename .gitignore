@@ -4,3 +4,4 @@
 .vscode/launch.json
 .vscode/ipch
 **/git branch -M main.DS_Store
+.DS_Store

@@ -64,7 +64,7 @@ void build(sets::Builder& b) {
             }
             b.endGroup();
         }
-        if (b.beginGroup("💧 Sensors")) {
+        if (b.beginGroup("⚙️ Sensor settings")) {
             b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
             b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
             b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
@@ -76,15 +76,25 @@ void build(sets::Builder& b) {
             }
             b.endGroup();
         }
+        if (b.beginGroup("💧 Sensor states")) {
+            for (byte i = 0; i < numSensors; i++) {
+                b.LED(printf("Sensor %d", i), sensors[i].state);
+            }
+            b.endGroup();
+        }
     }
 }
 
+void update(sets::Updater& u) {
+    u.update(kk::conf);
+}
+
 void setup() {
-    for (byte i = 0; i < sizeof(sensors); i++) {
+    for (byte i = 0; i < numSensors; i++) {
         pinMode(sensors[i].pin, INPUT);
         digitalWrite(sensors[i].pin, LOW);
     }
-    Serial.begin(9600);
+    Serial.begin(115200);
     lastState = 0;
     pinMode(relayPin, OUTPUT);
     digitalWrite(relayPin, LOW);
@@ -115,6 +125,7 @@ void setup() {
 
     sett.begin();
     sett.onBuild(build);
+    sett.onUpdate(update);
 
     NTP.onError([]() {
         Serial.print("NTP Error: ");
@@ -136,27 +147,24 @@ void setup() {
 
 bool readSensors() {
     bool overallStateChanged = false;
-    for (byte i = 0; i < numSensors; i++) {
-        bool state = digitalRead(sensors[i].pin);
+    for (byte i = 0; i < 4; i++) {
+        // Sensor pins are pulled up by the external resistors.
+        // Dry sensor produce HIGH signal on its pin.
+        // So we need to invert the logic.
+        bool state = !digitalRead(sensors[i].pin);
         if (sensors[i].state != state) {
+            if (!sensors[i].timer->running()) {
+                sensors[i].timer->start();
+            }
+        } else {
+            sensors[i].timer->stop();
+        }
+        if (sensors[i].timer->timeout(rattleThreshold)) {
+            sensors[i].state = !sensors[i].state;
+            overallStateChanged = true;
             Serial.print("Sensor ");
             Serial.print(i);
-            Serial.print(" state changed to ");
-            Serial.println(state ? "HIGH" : "LOW");
-            sensors[i].timer.start();
-        }
-        if (sensors[i].timer.overflow(rattleThreshold)) {
-            sensors[i].state = state;
-            overallStateChanged = true;
-            if (state) {
-                Serial.print("Sensor ");
-                Serial.print(i);
-                Serial.println(" triggered!");
-            } else {
-                Serial.print("Sensor ");
-                Serial.print(i);
-                Serial.println(" reset.");
-            }
+            Serial.println(sensors[i].state ? " triggered!" : " reset.");
         }
     }
     return overallStateChanged;
@@ -184,7 +192,7 @@ void updatePumpState() {
       }
       break;
     case PUMP_ON_WORKING:
-      if (pumpTimer.overflow(pumpOnDuration))
+      if (pumpTimer.timeout(pumpOnDuration))
       {
         Serial.println("Pump working period ended.");
         pumpState = PUMP_ON_IDLE;
@@ -193,12 +201,12 @@ void updatePumpState() {
       }
       break;
     case PUMP_ON_IDLE:
-      if (pumpTimer.overflow(pumpOffDuration))
+      if (pumpTimer.timeout(pumpOffDuration))
       {
         // Idle period ended. If water level is above second sensor - activate pump
         if (sensors[1].state)
         {
-          Serial.println("Water level is above second sensor, activating pump.");
+          Serial.println("Water level is above the second sensor, activating pump.");
           pumpState = PUMP_ON_WORKING;
           digitalWrite(relayPin, HIGH);
           pumpTimer.start();
@@ -235,7 +243,7 @@ void loop() {
   sett.tick();
   NTP.tick();
   if (readSensors()) {
-      Serial.println("Sensors state changed, updating relay.");
+      //Serial.println("Sensors state changed, updating relay.");
   }
   updatePumpState();
   if (debugTimer.period(1000)) {
@@ -245,5 +253,6 @@ void loop() {
       }
       Serial.println();
   }
+  delay(100);
 }
 
