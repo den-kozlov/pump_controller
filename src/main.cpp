@@ -6,9 +6,11 @@
 #include <SettingsESP.h>
 #include <WiFiConnector.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <GTimer.h>
 #include "sensor.h"
 #include "pump.h"
+#include "pump_controller.h"
 
 
 GyverDBFile db(&LittleFS, "/data.db");
@@ -19,19 +21,25 @@ DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump
 const uint8_t relayPin = D7; // Relay pin for the pump
 const uint8_t sensorPin = D1; // Pin for the sensor
 
-Sensor sensor = Sensor(sensorPin);
-Pump pump = Pump(relayPin, &sensor);
+Sensor *sensor;
+Pump *pump;
+PumpController *pump_controller;
 
-// Sensor rattle threshold
-uint16_t rattleThreshold;
+const uint32_t NTP_UPDATE_PERIOD = 12 * 60 * 60; // 12 hours in seconds
 
-// Pump timer
-// The amount of time the pump will stay continuously on
-uint16_t pumpOnDuration;
-// Pause before the pump is turned on again
-uint16_t pumpOffDuration;
-// The total duration the pump is active after the sensor is triggered
-uint16_t pumpActiveDuration;
+void onWiFiConnect() {
+    Serial.print("Connected! ");
+    Serial.println(WiFi.localIP());
+    Serial.print("DNS: ");
+    Serial.println(WiFi.dnsIP());
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
+    if (!MDNS.begin("pump_controller")) {
+        Serial.println("Error starting mDNS");
+    } else {
+        Serial.println("mDNS started: pump_controller.local");
+    }
+}
 
 void build(sets::Builder& b) {
     if (b.beginGroup("🛜 WiFi")) {
@@ -62,25 +70,23 @@ void build(sets::Builder& b) {
         b.Number(kk::pump_active_duration, "Pump Active Duration (ms)");
         if (b.Button("Apply")) {
             db.update();
-            rattleThreshold = db[kk::rattle_threshold];
-            pumpOnDuration = db[kk::pump_on_duration];
-            pumpOffDuration = db[kk::pump_off_duration];
-            pumpActiveDuration = db[kk::pump_active_duration];
+            (static_cast<TriggerSensor*>(sensor))->setRattleThreshold(db[kk::rattle_threshold]);
+            pump->setPumpOnDuration(db[kk::pump_on_duration]);
+            pump->setPumpOffDuration(db[kk::pump_off_duration]);
+            (static_cast<EmptyingPumpTimeoutController*>(pump_controller))->setActiveTime(db[kk::pump_active_duration]);
         }
         b.endGroup();
     }
 
     if (b.beginGroup("💧 Sensor states")) {
-        b.LED("Sensor", sensor.getStatus());
-        b.LED("Pump", pump.isActive());
+        b.LED("Sensor", sensor->getLevel() > Sensor::SENSOR_LEVEL_MIN);
+        b.LED("Pump", pump->getState() == Pump::PUMP_ON_WORKING || pump->getState() == Pump::PUMP_ON_IDLE);
         b.endGroup();
     }
 }
 
 void setup() {
     Serial.begin(115200);
-    pinMode(relayPin, OUTPUT);
-    digitalWrite(relayPin, LOW);
 
     LittleFS.begin();
     db.begin();
@@ -88,19 +94,12 @@ void setup() {
     db.init(kk::wifi_pass, "");
     db.init(kk::ntp_server, "pool.ntp.org");
     db.init(kk::ntp_offset, 0);
-    db.init(kk::rattle_threshold, 1000);
-    db.init(kk::pump_on_duration, 5000);
-    db.init(kk::pump_off_duration, 10000);
-    db.init(kk::pump_active_duration, 1000 * 60 * 2);
+    db.init(kk::rattle_threshold, TriggerSensor::DEFAULT_RATTLE_THRESHOLD);
+    db.init(kk::pump_on_duration, Pump::DEFAULT_PUMP_ON_DURATION);
+    db.init(kk::pump_off_duration, Pump::DEFAULT_PUMP_OFF_DURATION);
+    db.init(kk::pump_active_duration, EmptyingPumpTimeoutController::DEFAULT_ACTIVE_TIME);
 
-    WiFiConnector.onConnect([]() {
-        Serial.print("Connected! ");
-        Serial.println(WiFi.localIP());
-        Serial.print("DNS: ");
-        Serial.println(WiFi.dnsIP());
-        Serial.print("Gateway: ");
-        Serial.println(WiFi.gatewayIP());
-    });
+    WiFiConnector.onConnect(onWiFiConnect);
     WiFiConnector.onError([]() {
         Serial.print("Unable to connet to WiFi! start AP ");
         Serial.println(WiFi.softAPIP());
@@ -118,27 +117,19 @@ void setup() {
     });
 
     NTP.begin(db[kk::ntp_offset]);
-    NTP.setPeriod(1 * 60 * 60);
+    NTP.setPeriod(NTP_UPDATE_PERIOD);
     NTP.asyncMode(true);
 
-    rattleThreshold = db[kk::rattle_threshold];
-    pumpOnDuration = db[kk::pump_on_duration];
-    pumpOffDuration = db[kk::pump_off_duration];
-    pumpActiveDuration = db[kk::pump_active_duration];
-    pinMode(sensor.getPin(), INPUT);
-    digitalWrite(sensor.getPin(), LOW);
-    sensor.setRattleThreshold(rattleThreshold);
-    pump.setPumpOnDuration(pumpOnDuration);
-    pump.setPumpOffDuration(pumpOffDuration);
-    pump.setPumpActiveDuration(pumpActiveDuration);
+    sensor = new TriggerSensor(sensorPin, db[kk::rattle_threshold]);
+    pump = new RelayPump(relayPin, db[kk::pump_on_duration], db[kk::pump_off_duration]);
+    pump_controller = new EmptyingPumpTimeoutController(sensor, pump, db[kk::pump_active_duration]);
 }
-
 
 void loop() {
     WiFiConnector.tick();
+    MDNS.update();
     sett.tick();
     NTP.tick();
-    sensor.tick();
-    pump.tick();
+    pump_controller->tick();
 }
 

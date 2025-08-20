@@ -4,18 +4,36 @@
 
 class Sensor {
 public:
-  explicit Sensor(int pin, int rattleThreshold = 1000)
-      : pinNumber(pin), rattleThreshold(rattleThreshold), status(false) {}
+  static const uint8_t SENSOR_LEVEL_MAX = 255;
+  static const uint8_t SENSOR_LEVEL_MIN = 0;
 
-  int getPin() const { return pinNumber; }
-  bool getStatus() const { return status; }
+  virtual ~Sensor() = default;
+  virtual uint8_t getLevel() = 0;
+  virtual void tick() = 0;
+};
 
-  void setRattleThreshold(int threshold) { rattleThreshold = threshold; }
-  void tick();
+class TriggerSensor : public Sensor {
+public:
+  static const uint16_t DEFAULT_RATTLE_THRESHOLD = 1000;
+
+  TriggerSensor(uint8_t pin, uint16_t rattleThreshold = DEFAULT_RATTLE_THRESHOLD)
+      : pinNumber(pin), rattleThreshold(rattleThreshold), triggered(false) 
+      {
+        pinMode(pinNumber, INPUT);
+        digitalWrite(pinNumber, LOW);
+      }
+
+  uint8_t getPin() const { return pinNumber; }
+
+  void setRattleThreshold(uint16_t threshold) { rattleThreshold = threshold; }
+
+
+  virtual uint8_t getLevel() { return triggered ? SENSOR_LEVEL_MAX : SENSOR_LEVEL_MIN; }
+  virtual void tick();
 
 private:
-  int pinNumber;
-  int rattleThreshold;
-  bool status;
-  uTimer16<millis> timer;
+  uint8_t pinNumber;
+  uint16_t rattleThreshold;
+  bool triggered;
+  uTimer16<millis> rattleTimer;
 };

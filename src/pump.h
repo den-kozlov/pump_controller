@@ -3,41 +3,61 @@
 #include <Arduino.h>
 #include "sensor.h"
 
-enum pumpState_t {
-    PUMP_OFF = 0,
-    PUMP_ON_WORKING,
-    PUMP_ON_IDLE,
-    PUMP_EMERGENCY_SHUTDOWN
-};
+
+
+
 
 class Pump {
 public:
-  explicit Pump(int pin, Sensor* sensor)
-      : pinNumber(pin),
-        state(PUMP_OFF),
-        activePeriod(1000 * 60 * 2),
-        sensor(sensor),
-        pumpOnDuration(1000 * 5),
-        pumpOffDuration(1000 * 10),
-        stateTimer(),
-        activeTimer() {}
-
-  int getPin() const { return pinNumber; }
-  pumpState_t getState() const { return state; }
-  void setActivePeriod(unsigned long period) { activePeriod = period; }
+  static const uint16_t DEFAULT_PUMP_ON_DURATION = 1000 * 5;
+  static const uint16_t DEFAULT_PUMP_OFF_DURATION = 1000 * 10;
+  enum pumpState_t {
+    PUMP_OFF = 0,
+    PUMP_ON_WORKING,
+    PUMP_ON_IDLE
+  };
+  
+  Pump(uint16_t pumpOnDuration = DEFAULT_PUMP_ON_DURATION, uint16_t pumpOffDuration = DEFAULT_PUMP_OFF_DURATION)
+      : state(PUMP_OFF),
+        pumpOnDuration(pumpOnDuration),
+        pumpOffDuration(pumpOffDuration),
+        stateTimer() { }
+  virtual ~Pump() = default;
+  virtual void tick();
+  pumpState_t getState() { return state; }
   void setPumpOnDuration(uint16_t duration) { pumpOnDuration = duration; }
   void setPumpOffDuration(uint16_t duration) { pumpOffDuration = duration; }
-  void setPumpActiveDuration(uint16_t duration) { activePeriod = duration; }
 
-  void tick();
-  bool isActive() { return activeTimer.running(); }
-private:
-  int pinNumber;
+  void start();
+  void stop();
+  virtual void emergencyStop();
+
+protected:
+  virtual void turnOn() = 0;
+  virtual void turnOff() = 0;
   pumpState_t state;
-  unsigned long activePeriod;
-  Sensor* sensor;
   uint16_t pumpOnDuration;
   uint16_t pumpOffDuration;
   uTimer16<millis> stateTimer;
-  uTimer16<millis> activeTimer;
+};
+
+class RelayPump : public Pump {
+public:
+  RelayPump(uint8_t pin, uint16_t pumpOnDuration = DEFAULT_PUMP_ON_DURATION, uint16_t pumpOffDuration = DEFAULT_PUMP_OFF_DURATION)
+      : Pump(pumpOnDuration, pumpOffDuration), pinNumber(pin) {
+          pinMode(pinNumber, OUTPUT);
+          digitalWrite(pinNumber, LOW);
+      }
+
+  uint8_t getPin() const { return pinNumber; }
+protected:
+  void turnOn() override {
+    digitalWrite(pinNumber, HIGH);
+  }
+
+  void turnOff() override {
+    digitalWrite(pinNumber, LOW);
+  }
+private:
+  uint8_t pinNumber;
 };
