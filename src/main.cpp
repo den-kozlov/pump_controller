@@ -20,7 +20,7 @@ DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump
     pwm_freq, pwm_duty_cycle, apply);
 
 const uint8_t relayPin = D7; // Relay pin for the pump
-const uint8_t sensorPin = D1; // Pin for the sensor
+const uint8_t sensorPin = D4; // Pin for the sensor
 
 Sensor *sensor;
 Pump *pump;

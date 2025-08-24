@@ -16,11 +16,15 @@ class TriggerSensor : public Sensor {
 public:
   static const uint16_t DEFAULT_RATTLE_THRESHOLD = 1000;
 
-  TriggerSensor(uint8_t pin, uint16_t rattleThreshold = DEFAULT_RATTLE_THRESHOLD)
-      : pinNumber(pin), rattleThreshold(rattleThreshold), triggered(false) 
+  TriggerSensor(uint8_t pin, uint16_t rattleThreshold = DEFAULT_RATTLE_THRESHOLD, bool activeLow = true)
+      : pinNumber(pin), rattleThreshold(rattleThreshold), triggered(false), activeLow(activeLow)
       {
         pinMode(pinNumber, INPUT);
-        digitalWrite(pinNumber, LOW);
+        if (activeLow) {
+          digitalWrite(pinNumber, HIGH);
+        } else {
+          digitalWrite(pinNumber, LOW);
+        }
       }
 
   uint8_t getPin() const { return pinNumber; }
@@ -35,5 +39,6 @@ private:
   uint8_t pinNumber;
   uint16_t rattleThreshold;
   bool triggered;
+  bool activeLow;
   uTimer16<millis> rattleTimer;
 };
