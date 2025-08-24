@@ -11,12 +11,13 @@
 #include "sensor.h"
 #include "pump.h"
 #include "pump_controller.h"
-
+#include "debug_log.h"
 
 GyverDBFile db(&LittleFS, "/data.db");
 SettingsESP sett("WiFi config", &db);
 
-DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, pump_active_duration, apply);
+DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, pump_active_duration, 
+    pwm_freq, pwm_duty_cycle, apply);
 
 const uint8_t relayPin = D7; // Relay pin for the pump
 const uint8_t sensorPin = D1; // Pin for the sensor
@@ -28,16 +29,16 @@ PumpController *pump_controller;
 const uint32_t NTP_UPDATE_PERIOD = 12 * 60 * 60; // 12 hours in seconds
 
 void onWiFiConnect() {
-    Serial.print("Connected! ");
-    Serial.println(WiFi.localIP());
-    Serial.print("DNS: ");
-    Serial.println(WiFi.dnsIP());
-    Serial.print("Gateway: ");
-    Serial.println(WiFi.gatewayIP());
+    DEBUG_PRINT("Connected! ");
+    DEBUG_PRINTLN(WiFi.localIP());
+    DEBUG_PRINT("DNS: ");
+    DEBUG_PRINTLN(WiFi.dnsIP());
+    DEBUG_PRINT("Gateway: ");
+    DEBUG_PRINTLN(WiFi.gatewayIP());
     if (!MDNS.begin("pump_controller")) {
-        Serial.println("Error starting mDNS");
+        DEBUG_PRINTLN("Error starting mDNS");
     } else {
-        Serial.println("mDNS started: pump_controller.local");
+        DEBUG_PRINTLN("mDNS started: pump_controller.local");
     }
 }
 
@@ -63,11 +64,11 @@ void build(sets::Builder& b) {
         b.endGroup();
     }
 
-    if (b.beginGroup("⚙️ Sensor settings")) {
+    if (b.beginGroup("⚙️ Settings")) {
         b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
-        b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
-        b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
-        b.Number(kk::pump_active_duration, "Pump Active Duration (ms)");
+        b.Number(kk::pump_on_duration, "Pump On Duration (sec)");
+        b.Number(kk::pump_off_duration, "Pump Off Duration (sec)");
+        b.Number(kk::pump_active_duration, "Pump Active Duration (sec)");
         if (b.Button("Apply")) {
             db.update();
             (static_cast<TriggerSensor*>(sensor))->setRattleThreshold(db[kk::rattle_threshold]);
@@ -78,9 +79,9 @@ void build(sets::Builder& b) {
         b.endGroup();
     }
 
-    if (b.beginGroup("💧 Sensor states")) {
+    if (b.beginGroup("💧 State")) {
         b.LED("Sensor", sensor->getLevel() > Sensor::SENSOR_LEVEL_MIN);
-        b.LED("Pump", pump->getState() == Pump::PUMP_ON_WORKING || pump->getState() == Pump::PUMP_ON_IDLE);
+        b.LED("Pump", pump->getState() != Pump::PUMP_OFF);
         b.endGroup();
     }
 }
@@ -101,8 +102,8 @@ void setup() {
 
     WiFiConnector.onConnect(onWiFiConnect);
     WiFiConnector.onError([]() {
-        Serial.print("Unable to connet to WiFi! start AP ");
-        Serial.println(WiFi.softAPIP());
+        DEBUG_PRINT("Unable to connet to WiFi! start AP ");
+        DEBUG_PRINTLN(WiFi.softAPIP());
     });
     WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
 
@@ -110,10 +111,10 @@ void setup() {
     sett.onBuild(build);
 
     NTP.onError([]() {
-        Serial.print("NTP Error: ");
-        Serial.print(NTP.readError());
-        Serial.print(", online: ");
-        Serial.println(NTP.online() ? "yes" : "no");
+        DEBUG_PRINT("NTP Error: ");
+        DEBUG_PRINT(NTP.readError());
+        DEBUG_PRINT(", online: ");
+        DEBUG_PRINTLN(NTP.online() ? "yes" : "no");
     });
 
     NTP.begin(db[kk::ntp_offset]);
@@ -122,14 +123,13 @@ void setup() {
 
     sensor = new TriggerSensor(sensorPin, db[kk::rattle_threshold]);
     pump = new RelayPump(relayPin, db[kk::pump_on_duration], db[kk::pump_off_duration]);
+
     pump_controller = new EmptyingPumpTimeoutController(sensor, pump, db[kk::pump_active_duration]);
 }
 
 void loop() {
     WiFiConnector.tick();
-    MDNS.update();
     sett.tick();
     NTP.tick();
     pump_controller->tick();
 }
-
