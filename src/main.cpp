@@ -66,8 +66,8 @@ void build(sets::Builder& b) {
 
     if (b.beginGroup("⚙️ Settings")) {
         b.Number(kk::rattle_threshold, "Sensor Rattle Threshold (ms)");
-        b.Number(kk::pump_on_duration, "Pump On Duration (sec)");
-        b.Number(kk::pump_off_duration, "Pump Off Duration (sec)");
+        b.Number(kk::pump_on_duration, "Pump On Duration (ms)");
+        b.Number(kk::pump_off_duration, "Pump Off Duration (ms)");
         b.Number(kk::pump_active_duration, "Pump Active Duration (sec)");
         if (b.Button("Apply")) {
             db.update();

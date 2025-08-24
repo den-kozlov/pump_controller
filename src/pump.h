@@ -5,8 +5,8 @@
 #include "debug_log.h"
 class Pump {
 public:
-  static const uint16_t DEFAULT_PUMP_ON_DURATION = 5;
-  static const uint16_t DEFAULT_PUMP_OFF_DURATION = 10;
+  static const uint16_t DEFAULT_PUMP_ON_DURATION = 5 * 1000;
+  static const uint16_t DEFAULT_PUMP_OFF_DURATION = 10 * 1000;
   enum pumpState_t {
     PUMP_OFF = 0,
     PUMP_ON_WORKING,
@@ -15,8 +15,8 @@ public:
 
   Pump(uint16_t pumpOnDuration = DEFAULT_PUMP_ON_DURATION, uint16_t pumpOffDuration = DEFAULT_PUMP_OFF_DURATION) {
     this->state = PUMP_OFF;
-    this->pumpOffDuration = pumpOffDuration * 1000;
-    this->pumpOnDuration = pumpOnDuration * 1000;
+    this->pumpOffDuration = pumpOffDuration ;
+    this->pumpOnDuration = pumpOnDuration;
     this->stateTimer = uTimer16<millis>();
     DEBUG_PRINT("Pump::Pump pumpOnDuration: ");
     DEBUG_PRINTLN(this->pumpOnDuration);
@@ -27,8 +27,8 @@ public:
   virtual ~Pump() = default;
   virtual void tick();
   pumpState_t getState() { return state; }
-  void setPumpOnDuration(uint16_t duration) { pumpOnDuration = duration * 1000; }
-  void setPumpOffDuration(uint16_t duration) { pumpOffDuration = duration * 1000; }
+  void setPumpOnDuration(uint16_t duration) { pumpOnDuration = duration; }
+  void setPumpOffDuration(uint16_t duration) { pumpOffDuration = duration; }
 
   void start();
   void stop();
