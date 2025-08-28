@@ -3,18 +3,17 @@
 #include <GyverDBFile.h>
 #include <LittleFS.h>
 #include <GyverNTP.h>
-#include <SettingsESP.h>
+#include <SettingsGyverWS.h>
 #include <WiFiConnector.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
 #include <GTimer.h>
+#include "debug_log.h"
 #include "sensor.h"
 #include "pump.h"
 #include "pump_controller.h"
-#include "debug_log.h"
 
 GyverDBFile db(&LittleFS, "/data.db");
-SettingsESP sett("WiFi config", &db);
+SettingsGyverWS sett("Pump Controller", &db);
 
 DB_KEYS(kk, wifi_ssid, wifi_pass, ntp_server, ntp_offset, rattle_threshold, pump_on_duration, pump_off_duration, pump_active_duration, 
     pwm_freq, pwm_duty_cycle, apply);
@@ -28,6 +27,9 @@ PumpController *pump_controller;
 
 const uint32_t NTP_UPDATE_PERIOD = 12 * 60 * 60; // 12 hours in seconds
 
+#define SENSOR_SETTINGS_ID H("Sensor")
+#define PUMP_SETTINGS_ID H("Pump")
+
 void onWiFiConnect() {
     DEBUG_PRINT("Connected! ");
     DEBUG_PRINTLN(WiFi.localIP());
@@ -35,11 +37,6 @@ void onWiFiConnect() {
     DEBUG_PRINTLN(WiFi.dnsIP());
     DEBUG_PRINT("Gateway: ");
     DEBUG_PRINTLN(WiFi.gatewayIP());
-    if (!MDNS.begin("pump_controller")) {
-        DEBUG_PRINTLN("Error starting mDNS");
-    } else {
-        DEBUG_PRINTLN("mDNS started: pump_controller.local");
-    }
 }
 
 void build(sets::Builder& b) {
@@ -78,12 +75,17 @@ void build(sets::Builder& b) {
         }
         b.endGroup();
     }
-
     if (b.beginGroup("💧 State")) {
-        b.LED("Sensor", sensor->getLevel() > Sensor::SENSOR_LEVEL_MIN);
-        b.LED("Pump", pump->getState() != Pump::PUMP_OFF);
+        b.LED(SENSOR_SETTINGS_ID, "Sensor", sensor->getLevel() > Sensor::SENSOR_LEVEL_MIN);
+        b.LED(PUMP_SETTINGS_ID, "Pump", pump->getState() != Pump::PUMP_OFF);
         b.endGroup();
     }
+    #ifdef debug
+    if (b.beginGroup("📝 Log")) {
+        b.Log(H("Logger"), logger);
+        b.endGroup();
+    }
+    #endif
 }
 
 void setup() {
@@ -107,7 +109,7 @@ void setup() {
     });
     WiFiConnector.connect(db[kk::wifi_ssid], db[kk::wifi_pass]);
 
-    sett.begin();
+    sett.begin(true, "pump_controller");
     sett.onBuild(build);
 
     NTP.onError([]() {
@@ -125,6 +127,14 @@ void setup() {
     pump = new RelayPump(relayPin, db[kk::pump_on_duration], db[kk::pump_off_duration]);
 
     pump_controller = new EmptyingPumpTimeoutController(sensor, pump, db[kk::pump_active_duration]);
+
+    // update sensor level change callback
+    sensor->setOnLevelChange([]() {
+        sett.updater().update(SENSOR_SETTINGS_ID, sensor->getLevel() > Sensor::SENSOR_LEVEL_MIN);
+    });
+    pump->setOnStateChange([]() {
+        sett.updater().update(PUMP_SETTINGS_ID, pump->getState() != Pump::PUMP_OFF);
+    });
 }
 
 void loop() {

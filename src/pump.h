@@ -18,6 +18,7 @@ public:
     this->pumpOffDuration = pumpOffDuration ;
     this->pumpOnDuration = pumpOnDuration;
     this->stateTimer = uTimer16<millis>();
+    this->onStateChange = nullptr;
     DEBUG_PRINT("Pump::Pump pumpOnDuration: ");
     DEBUG_PRINTLN(this->pumpOnDuration);
     DEBUG_PRINT("Pump::Pump pumpOffDuration: ");
@@ -30,6 +31,7 @@ public:
   void setPumpOnDuration(uint16_t duration) { pumpOnDuration = duration; }
   void setPumpOffDuration(uint16_t duration) { pumpOffDuration = duration; }
 
+  void setOnStateChange(std::function<void()> callback) { onStateChange = callback; }
   void start();
   void stop();
   virtual void emergencyStop();
@@ -41,6 +43,7 @@ protected:
   uint16_t pumpOnDuration;
   uint16_t pumpOffDuration;
   uTimer16<millis> stateTimer;
+  std::function<void()> onStateChange;
 };
 
 class RelayPump : public Pump {
@@ -56,11 +59,17 @@ protected:
   void turnOn() override {
     digitalWrite(pinNumber, HIGH);
     DEBUG_PRINTLN("RelayPump::turnOn");
+    if (onStateChange) {
+        onStateChange();
+    }
   }
 
   void turnOff() override {
     digitalWrite(pinNumber, LOW);
     DEBUG_PRINTLN("RelayPump::turnOff");
+    if (onStateChange) {
+        onStateChange();
+    }
   }
 private:
   uint8_t pinNumber;
@@ -72,6 +81,8 @@ public:
       : Pump(pumpOnDuration, pumpOffDuration), pinNumber(pin) {
           pinMode(pinNumber, OUTPUT);
           digitalWrite(pinNumber, LOW);
+          DEBUG_PRINT("PWMPump::PWMPump pin: ");
+          DEBUG_PRINTLN(pinNumber);
       }
 
   uint8_t getPin() const { return pinNumber; }
@@ -88,11 +99,17 @@ protected:
   void turnOn() override {
     DEBUG_PRINTLN("PWMPump::turnOn");
     analogWrite(pinNumber, pwmDutyCycle);
+    if (onStateChange) {
+        onStateChange();
+    }
   }
 
   void turnOff() override {
     DEBUG_PRINTLN("PWMPump::turnOff");
     analogWrite(pinNumber, 0);
+    if (onStateChange) {
+        onStateChange();
+    }
   }
 private:
   uint8_t pinNumber;
